@@ -1,3 +1,7 @@
+"""
+Takes video file and plays Analog Four.
+"""
+
 import argparse
 import hashlib
 import math

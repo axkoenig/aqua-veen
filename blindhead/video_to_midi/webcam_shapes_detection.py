@@ -1,3 +1,7 @@
+"""
+Same as blindspot_leipzig_piece_2.py, but uses webcam instead of video file.
+"""
+
 import argparse
 import math
 import signal
