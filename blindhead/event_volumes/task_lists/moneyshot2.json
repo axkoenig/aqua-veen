@@ -1,0 +1,396 @@
+{
+    "data_dir": "/Users/koenig/Documents/personal/art_projects/colab_justin/blindhead/events_for_art/event_volumes/data",
+    "gui_settings": {
+        "background_color": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+        ],
+        "max_display_events": 230279,
+        "negative_event_color": [
+            0.9921568632125854,
+            0.9490196108818054,
+            0.9490196108818054,
+            1.0
+        ],
+        "point_size": 1.0770000219345093,
+        "positive_event_color": [
+            0.9843137264251709,
+            0.21568627655506134,
+            0.21568627655506134,
+            1.0
+        ],
+        "show_coordinate_axes": false,
+        "show_volume_box": false,
+        "slomo_factor": 0.49999991059303284,
+        "time_window": 0.039000000804662704,
+        "volume_rotation_index": 0,
+        "window_size": 50.94300079345703
+    },
+    "hdf5_file": "recording_2025-01-10_17-03-17_no_plugin.hdf5",
+    "task_list_name": "moneyshot2",
+    "tasks": [
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 5.199999809265137,
+            "name": "SetZLength 62",
+            "simTime": 0.0,
+            "targetWindowSize": 296.5979919433594,
+            "type": "SetZLength"
+        },
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 6.590000152587891,
+            "name": "SetSlomoFactor 63",
+            "simTime": 0.0,
+            "targetSlomoFactor": 0.550000011920929,
+            "type": "SetSlomoFactor"
+        },
+        {
+            "camera": {
+                "azimuth": 179.28515625,
+                "center": [
+                    360.0,
+                    640.0,
+                    0.0
+                ],
+                "distance": 1153.0,
+                "elevation": 21.2685546875
+            },
+            "duration": 7.989999771118164,
+            "name": "CameraMove 64",
+            "simTime": 0.0,
+            "type": "CameraMove"
+        },
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 8.25,
+            "name": "SetZLength 66",
+            "simTime": 0.0,
+            "targetWindowSize": 10.0,
+            "type": "SetZLength"
+        },
+        {
+            "camera": {
+                "azimuth": 236.4765625,
+                "center": [
+                    360.0,
+                    640.0,
+                    0.0
+                ],
+                "distance": 1319.0,
+                "elevation": -0.55859375
+            },
+            "duration": 9.640000343322754,
+            "name": "CameraMove 67",
+            "simTime": 0.0,
+            "type": "CameraMove"
+        },
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 2.319999933242798,
+            "name": "Wait 68",
+            "simTime": 0.0,
+            "type": "Wait"
+        },
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 10.6899995803833,
+            "name": "SetZLength 71",
+            "simTime": 0.0,
+            "targetWindowSize": 50.94300079345703,
+            "type": "SetZLength"
+        },
+        {
+            "camera": {
+                "azimuth": 176.8525390625,
+                "center": [
+                    360.0,
+                    640.0,
+                    0.0
+                ],
+                "distance": 1319.0,
+                "elevation": -2.3037109375
+            },
+            "duration": 6.159999847412109,
+            "name": "CameraMove 69",
+            "simTime": 0.0,
+            "type": "CameraMove"
+        },
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 6.159999847412109,
+            "name": "SetSlomoFactor 70",
+            "simTime": 0.0,
+            "targetSlomoFactor": 0.5,
+            "type": "SetSlomoFactor"
+        },
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 3.0,
+            "name": "SetSimTime 72",
+            "simTime": 179.9219970703125,
+            "type": "SetSimTime"
+        },
+        {
+            "camera": {
+                "azimuth": 176.8525390625,
+                "center": [
+                    360.0,
+                    640.0,
+                    0.0
+                ],
+                "distance": 1925.0,
+                "elevation": -2.3037109375
+            },
+            "duration": 2.0,
+            "name": "CameraMove 73",
+            "simTime": 0.0,
+            "type": "CameraMove"
+        },
+        {
+            "camera": {
+                "azimuth": 333.2236328125,
+                "center": [
+                    360.0,
+                    640.0,
+                    0.0
+                ],
+                "distance": 1925.0,
+                "elevation": -4.736328125
+            },
+            "duration": 2.0,
+            "name": "CameraMove 74",
+            "simTime": 0.0,
+            "type": "CameraMove"
+        },
+        {
+            "camera": {
+                "azimuth": 365.3193359375,
+                "center": [
+                    360.0,
+                    640.0,
+                    0.0
+                ],
+                "distance": 879.0,
+                "elevation": 5.025390625
+            },
+            "duration": 2.0,
+            "name": "CameraMove 75",
+            "simTime": 0.0,
+            "type": "CameraMove"
+        },
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 2.0,
+            "name": "SetZLength 76",
+            "simTime": 0.0,
+            "targetWindowSize": 910.7379760742188,
+            "type": "SetZLength"
+        },
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 2.0,
+            "name": "SetZLength 77",
+            "simTime": 0.0,
+            "targetWindowSize": 50.94300079345703,
+            "type": "SetZLength"
+        },
+        {
+            "camera": {
+                "azimuth": 364.14453125,
+                "center": [
+                    360.0,
+                    640.0,
+                    0.0
+                ],
+                "distance": 1251.0,
+                "elevation": 2.94140625
+            },
+            "duration": 2.0,
+            "name": "CameraMove 79",
+            "simTime": 0.0,
+            "type": "CameraMove"
+        },
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 3.0,
+            "name": "SetSimTime 80",
+            "simTime": 231.11614990234375,
+            "type": "SetSimTime"
+        },
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 31.81999969482422,
+            "name": "Wait 81",
+            "simTime": 0.0,
+            "type": "Wait"
+        },
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 4.590000152587891,
+            "name": "SetSlomoFactor 82",
+            "simTime": 0.0,
+            "targetSlomoFactor": 0.4000000059604645,
+            "type": "SetSlomoFactor"
+        },
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 4.940000057220459,
+            "name": "SetZLength 83",
+            "simTime": 0.0,
+            "targetWindowSize": 828.8519897460938,
+            "type": "SetZLength"
+        },
+        {
+            "camera": {
+                "azimuth": 351.9150390625,
+                "center": [
+                    360.0,
+                    640.0,
+                    0.0
+                ],
+                "distance": 1819.0,
+                "elevation": -4.0478515625
+            },
+            "duration": 2.0,
+            "name": "CameraMove 84",
+            "simTime": 0.0,
+            "type": "CameraMove"
+        },
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "distance": 500.0,
+                "elevation": 0.0
+            },
+            "duration": 18.3799991607666,
+            "name": "Wait 85",
+            "simTime": 0.0,
+            "type": "Wait"
+        }
+    ]
+}

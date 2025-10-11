@@ -1,0 +1,1 @@
+brew install hdf5 glfw glew glm nlohmann-json

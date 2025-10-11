@@ -1,0 +1,51 @@
+{
+    "data_dir": "/Users/koenig/Documents/personal/art_projects/colab_justin/blindhead/events_for_art/event_volumes/data",
+    "gui_settings": {
+        "background_color": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+        ],
+        "max_display_events": 291693,
+        "negative_event_color": [
+            0.9921568632125854,
+            0.9490196108818054,
+            0.9490196108818054,
+            1.0
+        ],
+        "point_size": 5.984000205993652,
+        "positive_event_color": [
+            0.9843137264251709,
+            0.21568627655506134,
+            0.21568627655506134,
+            1.0
+        ],
+        "show_coordinate_axes": true,
+        "show_volume_box": true,
+        "slomo_factor": 0.4399999976158142,
+        "time_window": 0.20600000023841858,
+        "volume_rotation_index": 0,
+        "window_size": 746.9669799804688
+    },
+    "hdf5_file": "recording_2025-01-10_17-03-17_no_plugin.hdf5",
+    "task_list_name": "test",
+    "tasks": [
+        {
+            "camera": {
+                "azimuth": 0.0,
+                "center": [
+                    360.0,
+                    640.0,
+                    0.0
+                ],
+                "distance": 2200.0,
+                "elevation": 0.0
+            },
+            "duration": 2.0,
+            "name": "CameraMove 1",
+            "simTime": 0.0,
+            "type": "CameraMove"
+        }
+    ]
+}

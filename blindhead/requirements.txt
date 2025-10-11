@@ -1,0 +1,9 @@
+h5py
+numpy
+Pillow
+plotly
+tqdm
+opencv-python
+matplotlib
+mido
+python-rtmidi # required for mido to recognize analog 4
