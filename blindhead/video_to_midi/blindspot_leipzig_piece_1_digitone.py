@@ -174,7 +174,7 @@ class Channel4Kick(DigitoneChannel):
         
         # Map brightness (0-255) to velocity (40-127)
         # Brighter = louder
-        min_velocity = 0
+        min_velocity =60
         max_velocity = 127  
         velocity = int(min_velocity + (self.current_brightness / BRIGHTNESS_RANGE) * (max_velocity - min_velocity))
         velocity = max(min_velocity, min(max_velocity, velocity))
