@@ -46,6 +46,16 @@ CHANNEL_COLORS = {
     3: (0, 255, 255),  # Yellow
 }
 
+# Not used but maybe later
+SECTIONS = {
+    # Title and End Position of this section
+    "Calibration": ["00:45"],
+    "(Crazy) Etching": ["03:20"],
+    "(Senaual) Slow Etching ": ["04:05"],
+    "Volume Fly Through": ["07:12"],
+    "Calibration": ["00:00"],
+}
+
 # Shape counters for each channel
 SHAPE_COUNTERS = {
     0: 0,
@@ -1263,8 +1273,20 @@ class VideoStream:
                         cap.set(cv2.CAP_PROP_POS_MSEC, cmd["time"] * 1000)
                         # Reset timing after seek
                         next_frame_time = time.time() + frame_duration
-                        last_frame = None
-                        last_metadata = None
+                        # If paused, read a frame immediately to populate last_frame/last_metadata
+                        # so the paused loop can continue sending frames
+                        if paused:
+                            ret, frame = cap.read()
+                            if ret:
+                                current_time = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000
+                                last_frame = frame
+                                last_metadata = {
+                                    "timestamp": current_time,
+                                    "frame_number": cap.get(cv2.CAP_PROP_POS_FRAMES),
+                                }
+                        else:
+                            last_frame = None
+                            last_metadata = None
                     elif cmd["type"] == "stop":
                         running = False
                     elif cmd["type"] == "pause":
@@ -2075,6 +2097,10 @@ def main(
                     # Update the trackbar to reflect the reset
                     cv2.setTrackbarPos("Start", controller.window_name, 0)
                     
+                    # Unpause video stream to allow it to seek properly
+                    # This prevents hanging when reset is pressed while paused
+                    video_stream.pause(paused=False)
+                    
                     # Reset main video to beginning (including sync sequence if applicable)
                     if hasattr(video_stream, "is_playing_sync"):
                         video_stream.is_playing_sync = True
@@ -2091,6 +2117,11 @@ def main(
                             time.sleep(0.05)  # Small delay to allow seek to complete
                             hd_player_command_queue.put({"type": "pause", "paused": True, "current_position": 0})
                             hd_video_started = False  # Reset flag so HD video will start when sync completes
+                    
+                    # Update controller pause state and last_paused_state
+                    # to reflect that video is now unpaused
+                    controller.is_paused = False
+                    last_paused_state = False
                     
                     # Reset timing
                     last_frame_time = time.time()
