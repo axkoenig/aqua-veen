@@ -2065,6 +2065,11 @@ def main(
                 # Check if reset was requested
                 if controller and controller.check_reset_requested():
                     print("Processing reset request...")
+                    
+                    # Turn off all MIDI notes when resetting
+                    print("Resetting - turning off all MIDI notes...")
+                    send_stop_message(midi_out)
+                    
                     # Reset controller's start time to 0
                     controller.start_time = 0
                     # Update the trackbar to reflect the reset
@@ -2108,6 +2113,12 @@ def main(
                     if current_paused_state != last_paused_state:
                         # Pause state changed, update video streams
                         video_stream.pause(current_paused_state)
+                        
+                        # Turn off all MIDI notes when pausing
+                        if current_paused_state:
+                            print("Pausing - turning off all MIDI notes...")
+                            send_stop_message(midi_out)
+                        
                         if hd_player_command_queue:
                             # Calculate HD video position (accounting for sync offset)
                             hd_video_position = max(0, video_timestamp - sync_offset)
