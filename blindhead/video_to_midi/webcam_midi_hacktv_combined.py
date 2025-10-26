@@ -31,28 +31,17 @@ MIDI_RANGE = 127
 BRIGHTNESS_RANGE = 255
 NUM_CHANNELS = 4
 DEBUG = False
-BPM = 80
 
-# MIDI Clock Constants
-MIDI_CLOCKS_PER_BEAT = 24
-BEATS_PER_BAR = 4
 
-# Channel min/max thresholds (CC values 0-127)
-# Channel 1: Red → Track 1 SYN 1 Feedback
-CH1_MIN = 0
-CH1_MAX = 127
-
-# Channel 2: Green → Track 2 Amp Drive
-CH2_MIN = 50
-CH2_MAX = 100
-
-# Channel 3: Blue → Track 2 Filter Frequency
-CH3_MIN = 50
-CH3_MAX = 100
-
-# Channel 4: Total Brightness → Track 4 Volume
-CH4_MIN = 0
-CH4_MAX = 127
+# Channel configurations
+# Each tuple: (name, color_channel, cc_number, midi_channel, min_value, max_value)
+# color_channel: 'red', 'green', 'blue', or 'gray' for total brightness
+CHANNEL_CONFIGS = [
+    ("Red→T1 Feedback", "red", 19, 0, 0, 127),      # Track 1 SYN 1 Feedback
+    ("Green→T4 LFO Speed", "green", 28, 3, 0, 127),  # Track 4 LFO Speed
+    ("Blue→T2 Filter", "blue", 23, 1, 50, 100),      # Track 2 Filter Frequency
+    ("Total→T3 SYN1 Mix", "gray", 21, 2, 0, 127),    # Track 3 SYN 1 Mix
+]
 
 # HackTV settings
 VIDEO_LOOP_FILE = "/home/weast/org/projects/Art/sindelfingen/Teaser05.mp4"
@@ -83,7 +72,7 @@ restart_hacktv_requested = threading.Event()
 
 # Frame queue for shared webcam mode
 import queue
-frame_queue = queue.Queue(maxsize=5)  # Limit queue size to prevent memory buildup
+frame_queue = queue.Queue(maxsize=30)  # Larger buffer for smoother HackTV streaming
 ffmpeg_stdin = None  # Will hold the FFmpeg stdin pipe
 
 
@@ -133,103 +122,61 @@ def init_midi_output(device_index=None):
         return None
 
 
-class MIDIClock:
-    """Handles MIDI clock generation at a specific BPM"""
+class ColorChannel:
+    """Generic channel that extracts color/brightness and sends MIDI CC"""
 
-    def __init__(self, midi_out, bpm=80):
+    def __init__(self, name, color_channel, cc_number, midi_channel, min_value, max_value, midi_out):
+        """
+        Args:
+            name: Display name for this channel
+            color_channel: 'red', 'green', 'blue', or 'gray' for total brightness
+            cc_number: MIDI CC number to send
+            midi_channel: MIDI channel (0-indexed)
+            min_value: Minimum CC value
+            max_value: Maximum CC value
+            midi_out: MIDI output object
+        """
+        self.name = name
+        self.color_channel = color_channel
+        self.cc_number = cc_number
+        self.midi_channel = midi_channel
+        self.min_value = min_value
+        self.max_value = max_value
         self.midi_out = midi_out
-        self.bpm = bpm
-        self.clock_interval = 60.0 / (bpm * MIDI_CLOCKS_PER_BEAT)
-        self.beat_interval = 60.0 / bpm
-        self.last_clock_time = time.time()
-        self.last_beat_time = time.time()
-        self.clock_count = 0
-        self.beat_count = 0
-        self.is_on_beat = False
-
-    def start(self):
-        """Send MIDI start message"""
-        if self.midi_out:
-            self.midi_out.send(mido.Message('start'))
-            print(f"MIDI Clock started at {self.bpm} BPM")
-
-    def stop(self):
-        """Send MIDI stop message"""
-        if self.midi_out:
-            self.midi_out.send(mido.Message('stop'))
-            print("MIDI Clock stopped")
-
-    def update(self):
-        """Update clock and check if we're on a beat."""
-        if not self.midi_out:
-            return False
-
-        current_time = time.time()
-
-        while current_time - self.last_clock_time >= self.clock_interval:
-            self.midi_out.send(mido.Message('clock'))
-            self.last_clock_time += self.clock_interval
-            self.clock_count += 1
-
-            if self.clock_count % MIDI_CLOCKS_PER_BEAT == 0:
-                self.beat_count += 1
-                self.is_on_beat = True
-                debug_print(f"Beat {self.beat_count}")
-                return True
-
-        self.is_on_beat = False
-        return False
-
-
-class DigitoneChannel:
-    """Base class for Digitone channel controllers"""
-
-    def __init__(self, channel_num, midi_out, midi_mapping):
-        self.channel_num = channel_num
-        self.midi_out = midi_out
-        self.midi_mapping = midi_mapping
-        self.beat_count = 0
-
-    def update(self, frame):
-        """Update channel state based on current frame."""
-        pass
-
-    def on_beat(self, beat_number):
-        """Called on each beat."""
-        self.beat_count = beat_number
-
-
-class Channel4Brightness(DigitoneChannel):
-    """Channel 4: Total brightness → CC control"""
-
-    def __init__(self, channel_num, midi_out, midi_mapping):
-        super().__init__(channel_num, midi_out, midi_mapping)
         self.current_brightness = 0
         self.smoothing_factor = 0.3
-        self.cc_number = 7  # Volume (could be changed to any CC)
         self.last_sent_value = -1
 
     def update(self, frame):
-        """Update brightness measurement from grayscale frame and send CC"""
-        avg_brightness = np.mean(frame)
+        """Update from frame (handles both BGR and grayscale)"""
+        # Extract the appropriate channel
+        if self.color_channel == 'gray':
+            # Expect grayscale frame
+            avg_brightness = np.mean(frame)
+        else:
+            # Expect BGR frame, extract specific color
+            color_index = {'blue': 0, 'green': 1, 'red': 2}[self.color_channel]
+            avg_brightness = np.mean(frame[:, :, color_index])
+
+        # Apply smoothing
         self.current_brightness = (
             self.current_brightness * (1 - self.smoothing_factor) +
             avg_brightness * self.smoothing_factor
         )
-        debug_print(f"Channel 4 (Total brightness) brightness: {self.current_brightness:.2f}")
+        debug_print(f"{self.name} brightness: {self.current_brightness:.2f}")
 
-        # Send CC immediately
+        # Send CC message
         self._send_cc()
 
     def _send_cc(self):
-        """Send CC message based on brightness"""
+        """Send CC message based on current brightness"""
         if not self.midi_out:
             return
 
-        # Map brightness (0-255) to channel's min-max range
+        # Map brightness (0-255) to configured min-max range
         normalized = self.current_brightness / BRIGHTNESS_RANGE
-        cc_value = int(CH4_MIN + normalized * (CH4_MAX - CH4_MIN))
-        cc_value = max(CH4_MIN, min(CH4_MAX, cc_value))
+        cc_value = int(self.min_value + normalized * (self.max_value - self.min_value))
+        cc_value = max(self.min_value, min(self.max_value, cc_value))
 
         # Only send if value changed
         if cc_value != self.last_sent_value:
@@ -238,160 +185,11 @@ class Channel4Brightness(DigitoneChannel):
                     'control_change',
                     control=self.cc_number,
                     value=cc_value,
-                    channel=self.channel_num
+                    channel=self.midi_channel
                 )
             )
             self.last_sent_value = cc_value
-            debug_print(f"Channel 4 (Total brightness) CC{self.cc_number}: {cc_value}")
-
-
-class Channel1Red(DigitoneChannel):
-    """Channel 1: Red color brightness → SYN 1 Feedback"""
-
-    def __init__(self, channel_num, midi_out, midi_mapping):
-        super().__init__(channel_num, midi_out, midi_mapping)
-        self.current_brightness = 0
-        self.smoothing_factor = 0.3
-        self.cc_number = 19  # SYN 1 Feedback
-        self.last_sent_value = -1  # Track last sent value to avoid spamming
-
-    def update_from_bgr(self, bgr_frame):
-        """Update from BGR frame to get red channel and send CC"""
-        # Extract red channel (index 2 in BGR)
-        red_channel = bgr_frame[:, :, 2]
-        avg_brightness = np.mean(red_channel)
-
-        self.current_brightness = (
-            self.current_brightness * (1 - self.smoothing_factor) +
-            avg_brightness * self.smoothing_factor
-        )
-        debug_print(f"Channel 1 (Red) brightness: {self.current_brightness:.2f}")
-
-        # Send CC immediately
-        self._send_cc()
-
-    def _send_cc(self):
-        """Send CC message based on brightness"""
-        if not self.midi_out:
-            return
-
-        # Map brightness (0-255) to channel's min-max range
-        normalized = self.current_brightness / BRIGHTNESS_RANGE
-        cc_value = int(CH1_MIN + normalized * (CH1_MAX - CH1_MIN))
-        cc_value = max(CH1_MIN, min(CH1_MAX, cc_value))
-
-        # Only send if value changed
-        if cc_value != self.last_sent_value:
-            self.midi_out.send(
-                mido.Message(
-                    'control_change',
-                    control=self.cc_number,
-                    value=cc_value,
-                    channel=self.channel_num
-                )
-            )
-            self.last_sent_value = cc_value
-            debug_print(f"Channel 1 (Red) → Track 1 Feedback CC{self.cc_number}: {cc_value}")
-
-
-class Channel2Green(DigitoneChannel):
-    """Channel 2: Green color brightness → Amp Drive"""
-
-    def __init__(self, channel_num, midi_out, midi_mapping):
-        super().__init__(channel_num, midi_out, midi_mapping)
-        self.current_brightness = 0
-        self.smoothing_factor = 0.3
-        self.cc_number = 9  # Amp Drive
-        self.last_sent_value = -1
-
-    def update_from_bgr(self, bgr_frame):
-        """Update from BGR frame to get green channel and send CC"""
-        # Extract green channel (index 1 in BGR)
-        green_channel = bgr_frame[:, :, 1]
-        avg_brightness = np.mean(green_channel)
-
-        self.current_brightness = (
-            self.current_brightness * (1 - self.smoothing_factor) +
-            avg_brightness * self.smoothing_factor
-        )
-        debug_print(f"Channel 2 (Green) brightness: {self.current_brightness:.2f}")
-
-        # Send CC immediately
-        self._send_cc()
-
-    def _send_cc(self):
-        """Send CC message based on brightness"""
-        if not self.midi_out:
-            return
-
-        # Map brightness (0-255) to channel's min-max range
-        normalized = self.current_brightness / BRIGHTNESS_RANGE
-        cc_value = int(CH2_MIN + normalized * (CH2_MAX - CH2_MIN))
-        cc_value = max(CH2_MIN, min(CH2_MAX, cc_value))
-
-        # Only send if value changed
-        if cc_value != self.last_sent_value:
-            self.midi_out.send(
-                mido.Message(
-                    'control_change',
-                    control=self.cc_number,
-                    value=cc_value,
-                    channel=self.channel_num
-                )
-            )
-            self.last_sent_value = cc_value
-            debug_print(f"Channel 2 (Green) CC{self.cc_number}: {cc_value}")
-
-
-class Channel3Blue(DigitoneChannel):
-    """Channel 3: Blue color brightness → Filter Frequency on Track 2"""
-
-    def __init__(self, channel_num, midi_out, midi_mapping):
-        super().__init__(channel_num, midi_out, midi_mapping)
-        self.current_brightness = 0
-        self.smoothing_factor = 0.3
-        self.cc_number = 23  # Filter Frequency
-        self.last_sent_value = -1
-        # Override channel_num to send to track 2 (MIDI channel 2 = index 1)
-        self.channel_num = 1
-
-    def update_from_bgr(self, bgr_frame):
-        """Update from BGR frame to get blue channel and send CC"""
-        # Extract blue channel (index 0 in BGR)
-        blue_channel = bgr_frame[:, :, 0]
-        avg_brightness = np.mean(blue_channel)
-
-        self.current_brightness = (
-            self.current_brightness * (1 - self.smoothing_factor) +
-            avg_brightness * self.smoothing_factor
-        )
-        debug_print(f"Channel 3 (Blue) brightness: {self.current_brightness:.2f}")
-
-        # Send CC immediately
-        self._send_cc()
-
-    def _send_cc(self):
-        """Send CC message based on brightness"""
-        if not self.midi_out:
-            return
-
-        # Map brightness (0-255) to channel's min-max range
-        normalized = self.current_brightness / BRIGHTNESS_RANGE
-        cc_value = int(CH3_MIN + normalized * (CH3_MAX - CH3_MIN))
-        cc_value = max(CH3_MIN, min(CH3_MAX, cc_value))
-
-        # Only send if value changed
-        if cc_value != self.last_sent_value:
-            self.midi_out.send(
-                mido.Message(
-                    'control_change',
-                    control=self.cc_number,
-                    value=cc_value,
-                    channel=self.channel_num
-                )
-            )
-            self.last_sent_value = cc_value
-            debug_print(f"Channel 3 (Blue) → Track 2 CC{self.cc_number}: {cc_value}")
+            debug_print(f"{self.name} CC{self.cc_number}: {cc_value}")
 
 
 def send_stop_message(midi_out):
@@ -938,6 +736,7 @@ def main(
     enable_hacktv=False,
     webcam_device=None,
     midi_device_index=None,
+    timing_diagnostics=False,
 ):
     global DEBUG
     DEBUG = debug
@@ -966,18 +765,15 @@ def main(
             if enable_midi:
                 return
 
-        channels = [
-            Channel1Red(0, midi_out, midi_mapping),
-            Channel2Green(1, midi_out, midi_mapping),
-            Channel3Blue(2, midi_out, midi_mapping),
-            Channel4Brightness(3, midi_out, midi_mapping),
-        ]
+        # Create channels from configuration
+        channels = []
+        for name, color_ch, cc_num, midi_ch, min_val, max_val in CHANNEL_CONFIGS:
+            channel = ColorChannel(name, color_ch, cc_num, midi_ch, min_val, max_val, midi_out)
+            channels.append(channel)
 
-        print("MIDI channels initialized (CC only, no clock)")
-        print(f"Channel 1 (Red) → Track 1: SYN 1 Feedback (CC 19) [{CH1_MIN}-{CH1_MAX}]")
-        print(f"Channel 2 (Green) → Track 2: Amp Drive (CC 9) [{CH2_MIN}-{CH2_MAX}]")
-        print(f"Channel 3 (Blue) → Track 2: Filter Frequency (CC 23) [{CH3_MIN}-{CH3_MAX}]")
-        print(f"Channel 4 (Total Brightness) → Track 4: Volume (CC 7) [{CH4_MIN}-{CH4_MAX}]")
+        print("MIDI channels initialized")
+        for i, (name, color_ch, cc_num, midi_ch, min_val, max_val) in enumerate(CHANNEL_CONFIGS):
+            print(f"Channel {i+1}: {name} (CC {cc_num}) → MIDI Ch {midi_ch+1} [{min_val}-{max_val}]")
 
     # Setup webcam
     if webcam_device is None:
@@ -1113,6 +909,14 @@ def main(
 
     try:
         frame_count = 0
+        last_frame_time = time.time()
+        target_fps = 30  # Limit to 30 FPS to reduce CPU load
+        frame_interval = 1.0 / target_fps
+
+        # Timing diagnostics (only if enabled)
+        timing_samples = []
+        timing_report_interval = 100  # Report every 100 frames
+
         print("Main loop started...")
 
         while not shutdown_requested.is_set():
@@ -1120,81 +924,127 @@ def main(
 
             # MIDI processing
             if enable_midi:
+                # Timing: Frame capture
+                if timing_diagnostics:
+                    t0 = time.time()
+
                 ret, frame = cap.read()
                 if not ret:
                     print("Warning: Couldn't read webcam frame")
                     time.sleep(0.01)
                     continue
 
+                if timing_diagnostics:
+                    t1 = time.time()
+
                 # If in shared webcam mode, send frame to HackTV
                 if use_shared_webcam:
                     try:
-                        # Non-blocking put - drop frame if queue is full
-                        frame_queue.put_nowait(frame.copy())
+                        # Non-blocking put - reuse frame without copying
+                        frame_queue.put_nowait(frame)
                     except queue.Full:
                         # Queue is full, skip this frame for HackTV
                         debug_print("Frame queue full, dropping frame for HackTV")
 
-                # Update RGB channels with BGR frame (sends CC automatically)
-                for channel in channels[:3]:  # Channels 1-3 (Red, Green, Blue)
-                    if hasattr(channel, 'update_from_bgr'):
-                        channel.update_from_bgr(frame)
+                if timing_diagnostics:
+                    t2 = time.time()
 
-                # Update total brightness channel with grayscale (sends CC automatically)
+                # Update all channels
                 gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                channels[3].update(gray_frame)
 
-                # Visualize
-                vis_frame = frame.copy()
+                if timing_diagnostics:
+                    t3 = time.time()
 
-                y_offset = 30
-                for i, channel in enumerate(channels):
-                    channel_num = i + 1
-                    color = CHANNEL_COLORS.get(i, (255, 255, 255))
-
-                    if isinstance(channel, Channel1Red):
-                        normalized = channel.current_brightness / BRIGHTNESS_RANGE
-                        cc_val = int(CH1_MIN + normalized * (CH1_MAX - CH1_MIN))
-                        status_text = f"T1 Red→Feedback: {channel.current_brightness:.1f} | CC{channel.cc_number}={cc_val} [{CH1_MIN}-{CH1_MAX}]"
-                    elif isinstance(channel, Channel2Green):
-                        normalized = channel.current_brightness / BRIGHTNESS_RANGE
-                        cc_val = int(CH2_MIN + normalized * (CH2_MAX - CH2_MIN))
-                        status_text = f"T2 Green→Drive: {channel.current_brightness:.1f} | CC{channel.cc_number}={cc_val} [{CH2_MIN}-{CH2_MAX}]"
-                    elif isinstance(channel, Channel3Blue):
-                        normalized = channel.current_brightness / BRIGHTNESS_RANGE
-                        cc_val = int(CH3_MIN + normalized * (CH3_MAX - CH3_MIN))
-                        status_text = f"T2 Blue→Filter: {channel.current_brightness:.1f} | CC{channel.cc_number}={cc_val} [{CH3_MIN}-{CH3_MAX}]"
-                    elif isinstance(channel, Channel4Brightness):
-                        normalized = channel.current_brightness / BRIGHTNESS_RANGE
-                        cc_val = int(CH4_MIN + normalized * (CH4_MAX - CH4_MIN))
-                        status_text = f"T4 Total→Volume: {channel.current_brightness:.1f} | CC{channel.cc_number}={cc_val} [{CH4_MIN}-{CH4_MAX}]"
+                for channel in channels:
+                    if channel.color_channel == 'gray':
+                        channel.update(gray_frame)
                     else:
-                        status_text = f"CH{channel_num}: (unknown)"
+                        channel.update(frame)
 
-                    cv2.putText(
-                        vis_frame, status_text, (10, y_offset),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA
-                    )
-                    cv2.putText(
-                        vis_frame, status_text, (10, y_offset),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA
-                    )
-                    y_offset += 30
+                if timing_diagnostics:
+                    t4 = time.time()
 
-                # Add queue status if in shared mode
-                if use_shared_webcam:
-                    queue_text = f"HackTV Queue: {frame_queue.qsize()}/5"
-                    cv2.putText(
-                        vis_frame, queue_text, (vis_frame.shape[1] - 300, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2, cv2.LINE_AA
-                    )
+                # Visualize only every other frame to reduce overhead
+                if frame_count % 2 == 0:
+                    vis_frame = frame.copy()
 
-                cv2.imshow("MIDI Control", vis_frame)
+                    y_offset = 30
+                    for i, channel in enumerate(channels):
+                        color = CHANNEL_COLORS.get(i, (255, 255, 255))
+
+                        # Calculate current CC value
+                        normalized = channel.current_brightness / BRIGHTNESS_RANGE
+                        cc_val = int(channel.min_value + normalized * (channel.max_value - channel.min_value))
+                        cc_val = max(channel.min_value, min(channel.max_value, cc_val))
+
+                        status_text = f"{channel.name}: {channel.current_brightness:.1f} | CC{channel.cc_number}={cc_val} [{channel.min_value}-{channel.max_value}]"
+
+                        cv2.putText(
+                            vis_frame, status_text, (10, y_offset),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA
+                        )
+                        cv2.putText(
+                            vis_frame, status_text, (10, y_offset),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA
+                        )
+                        y_offset += 30
+
+                    # Add queue status if in shared mode
+                    if use_shared_webcam:
+                        queue_text = f"HackTV Queue: {frame_queue.qsize()}/30"
+                        cv2.putText(
+                            vis_frame, queue_text, (vis_frame.shape[1] - 300, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2, cv2.LINE_AA
+                        )
+
+                    cv2.imshow("MIDI Control", vis_frame)
+
+                if timing_diagnostics:
+                    t5 = time.time()
 
                 key = cv2.waitKey(1) & 0xFF
                 if key == 27:
                     print("ESC pressed, exiting...")
                     break
+
+                if timing_diagnostics:
+                    t6 = time.time()
+
+                    # Collect timing data
+                    timing_data = {
+                        'capture': (t1 - t0) * 1000,
+                        'queue': (t2 - t1) * 1000,
+                        'gray_convert': (t3 - t2) * 1000,
+                        'midi_update': (t4 - t3) * 1000,
+                        'visualization': (t5 - t4) * 1000 if frame_count % 2 == 0 else 0,
+                        'waitkey': (t6 - t5) * 1000,
+                        'total_processing': (t6 - t0) * 1000
+                    }
+                    timing_samples.append(timing_data)
+
+                    # Report timing every N frames
+                    if frame_count % timing_report_interval == 0 and timing_samples:
+                        avg_timings = {
+                            key: sum(t[key] for t in timing_samples) / len(timing_samples)
+                            for key in timing_samples[0].keys()
+                        }
+                        print(f"\n=== Timing Report (frame {frame_count}) ===")
+                        print(f"  Frame capture:    {avg_timings['capture']:.2f} ms")
+                        print(f"  Queue frame:      {avg_timings['queue']:.2f} ms")
+                        print(f"  Gray convert:     {avg_timings['gray_convert']:.2f} ms")
+                        print(f"  MIDI update:      {avg_timings['midi_update']:.2f} ms")
+                        print(f"  Visualization:    {avg_timings['visualization']:.2f} ms")
+                        print(f"  cv2.waitKey:      {avg_timings['waitkey']:.2f} ms")
+                        print(f"  Total processing: {avg_timings['total_processing']:.2f} ms")
+                        print(f"  Effective FPS:    {1000/avg_timings['total_processing']:.1f}")
+                        timing_samples = []  # Reset for next batch
+
+                # Frame rate limiting
+                current_time = time.time()
+                elapsed = current_time - last_frame_time
+                if elapsed < frame_interval:
+                    time.sleep(frame_interval - elapsed)
+                last_frame_time = time.time()
             else:
                 # If only HackTV is enabled, just wait
                 time.sleep(0.1)
@@ -1277,6 +1127,11 @@ if __name__ == "__main__":
         default=None,
         help="MIDI device index to use (see list at startup, default: 0)"
     )
+    parser.add_argument(
+        "--timing",
+        action="store_true",
+        help="Enable timing diagnostics (reports every 100 frames)"
+    )
 
     args = parser.parse_args()
 
@@ -1294,6 +1149,7 @@ if __name__ == "__main__":
     print(f"  hacktv: {enable_hacktv}")
     print(f"  webcam: {args.webcam if args.webcam else 'auto-detect'}")
     print(f"  midi-device: {args.midi_device if args.midi_device is not None else 'auto (first device)'}")
+    print(f"  timing: {args.timing}")
 
     main(
         args.midi_mapping,
@@ -1301,5 +1157,6 @@ if __name__ == "__main__":
         enable_midi,
         enable_hacktv,
         args.webcam,
-        args.midi_device
+        args.midi_device,
+        args.timing
     )

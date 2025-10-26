@@ -1,0 +1,48 @@
+#+title: Logistics
+
+* equipment
+** TODO Packing list
+*** TODO Instruments [0/3]
+****  MFB Tanzbär [0/3]
+***** [ ] power cable
+***** [ ] midi cable IN
+***** [ ] Stereo audio Jack
+***** [ ] Stereo audio Jack
+**** [ ] Digitone [0/4]
+***** [ ] power cable
+***** [ ] midi cable OUT
+***** [ ] midi cable IN
+***** [ ] Stereo Audio Jack
+**** [ ] Analog Four [0/7]
+***** [ ] power cable
+***** [ ] midi cable IN
+***** [ ] mono audio Jack
+***** [ ] mono audio Jack
+***** [ ] mono audio Jack
+***** [ ] mono audio Jack
+***** [ ] 1 Stereo Audio Jack
+**** [ ] KO 133 [0/2]
+***** [ ] power cable (USB-C)
+***** [ ] Audio Jack 1/4 to 1/2 inch
+*** TODO Effect Modules [0/2]
+**** [ ] Strymon Reverb [0/3]
+***** [ ] power cable
+***** [ ] mono audio jack (short)
+***** [ ] mono audio jack (short)
+***** [ ] mono audio jack (short)
+*** TODO Interfaces
+**** [ ] Focusrite [0/3]
+***** [ ] power cable
+***** [ ] USB-B cable
+***** [ ] midi cable OUT
+**** [ ] Tascam Model 24 [0/1]
+***** [ ] power cable
+*** TODO CRT-TV
+**** [ ] HackRF [0/3]
+***** [ ] mini USB
+***** [ ] Antenna
+**** [ ] CRT
+**** [ ] Webcam
+*** [ ] Computers
+**** [ ] lenovo yossarian
+**** [ ] Macbook
