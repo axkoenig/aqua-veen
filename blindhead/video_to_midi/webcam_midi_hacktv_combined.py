@@ -15,6 +15,7 @@ import subprocess
 import threading
 import sys
 from pathlib import Path
+from collections import deque
 
 import cv2
 import mido
@@ -27,11 +28,24 @@ try:
 except ImportError:
     OSC_AVAILABLE = False
 
+try:
+    from PIL import Image, ImageDraw, ImageFont  # type: ignore
+    PIL_AVAILABLE = True
+except Exception:
+    PIL_AVAILABLE = False
+
 # Constants
 MIDI_RANGE = 127
 BRIGHTNESS_RANGE = 255
 NUM_CHANNELS = 4
 DEBUG = False
+
+# MIDI limiting and visualization defaults
+MIDI_LIMITING_ENABLED = True
+MIDI_GLOBAL_MAX_RATE = 50            # messages per second (token bucket fill rate)
+MIDI_PER_CHANNEL_MIN_INTERVAL_S = 0.02  # 20 ms between sends per (channel,cc)
+MIDI_QUANTIZE_STEP = 4                # send only on >= step change in CC value
+MIDI_GRAPH_HISTORY_SECONDS = 20       # seconds of history for overlay graph
 
 
 # Channel configurations
@@ -126,7 +140,8 @@ def init_midi_output(device_index=None):
 class ColorChannel:
     """Generic channel that extracts color/brightness and sends MIDI CC"""
 
-    def __init__(self, name, color_channel, cc_number, midi_channel, min_value, max_value, midi_out):
+    def __init__(self, name, color_channel, cc_number, midi_channel, min_value, max_value, midi_out,
+                 limiter=None, stats=None, quantize_step=1):
         """
         Args:
             name: Display name for this channel
@@ -147,6 +162,9 @@ class ColorChannel:
         self.current_brightness = 0
         self.smoothing_factor = 0.3
         self.last_sent_value = -1
+        self.quantize_step = max(1, int(quantize_step))
+        self.limiter = limiter
+        self.stats = stats
 
     def update(self, frame):
         """Update from frame (handles both BGR and grayscale)"""
@@ -176,23 +194,228 @@ class ColorChannel:
 
         # Map brightness (0-255) to configured min-max range
         normalized = self.current_brightness / BRIGHTNESS_RANGE
-        cc_value = int(self.min_value + normalized * (self.max_value - self.min_value))
-        cc_value = max(self.min_value, min(self.max_value, cc_value))
+        raw_value = int(self.min_value + normalized * (self.max_value - self.min_value))
+        raw_value = max(self.min_value, min(self.max_value, raw_value))
 
-        # Only send if value changed
+        # Quantize value
+        if self.quantize_step > 1:
+            # snap to nearest multiple within [min, max]
+            q = int(round(raw_value / self.quantize_step) * self.quantize_step)
+            cc_value = max(self.min_value, min(self.max_value, q))
+        else:
+            cc_value = raw_value
+
+        # Only attempt if value changed
         if cc_value != self.last_sent_value:
-            self.midi_out.send(
-                mido.Message(
-                    'control_change',
-                    control=self.cc_number,
-                    value=cc_value,
-                    channel=self.midi_channel
+            if self.stats is not None:
+                self.stats.record_attempt()
+
+            allowed = True
+            if self.limiter is not None:
+                allowed = self.limiter.allow((self.midi_channel, self.cc_number))
+
+            if allowed:
+                self.midi_out.send(
+                    mido.Message(
+                        'control_change',
+                        control=self.cc_number,
+                        value=cc_value,
+                        channel=self.midi_channel
+                    )
                 )
-            )
-            self.last_sent_value = cc_value
-            debug_print(f"{self.name} CC{self.cc_number}: {cc_value}")
+                if self.stats is not None:
+                    self.stats.record_sent()
+                self.last_sent_value = cc_value
+                debug_print(f"{self.name} CC{self.cc_number}: {cc_value}")
 
 
+# Rate limiting and stats helpers
+class MidiLimiter:
+    def __init__(self, enabled=True, global_rate=MIDI_GLOBAL_MAX_RATE, per_chan_interval=MIDI_PER_CHANNEL_MIN_INTERVAL_S):
+        self.enabled = enabled
+        self.global_rate = float(global_rate)
+        self.capacity = max(1.0, self.global_rate * 1.5)
+        self.tokens = self.capacity
+        self.last_refill = time.time()
+        self.per_chan_interval = float(per_chan_interval)
+        self.last_sent_time = {}
+
+    def allow(self, chan_key):
+        if not self.enabled:
+            return True
+        now = time.time()
+        # Refill tokens
+        elapsed = now - self.last_refill
+        if elapsed > 0:
+            self.tokens = min(self.capacity, self.tokens + elapsed * self.global_rate)
+            self.last_refill = now
+        # Per-channel interval check
+        last_t = self.last_sent_time.get(chan_key, 0.0)
+        if (now - last_t) < self.per_chan_interval:
+            return False
+        # Token check
+        if self.tokens >= 1.0:
+            self.tokens -= 1.0
+            self.last_sent_time[chan_key] = now
+            return True
+        return False
+
+
+class MidiStats:
+    def __init__(self, history_seconds=MIDI_GRAPH_HISTORY_SECONDS):
+        self.attempted_cur = 0
+        self.sent_cur = 0
+        self.last_tick = time.time()
+        self.history_attempted = deque(maxlen=int(history_seconds))
+        self.history_sent = deque(maxlen=int(history_seconds))
+
+    def record_attempt(self):
+        self.attempted_cur += 1
+
+    def record_sent(self):
+        self.sent_cur += 1
+
+    def tick_second(self):
+        now = time.time()
+        if (now - self.last_tick) >= 1.0:
+            self.history_attempted.append(self.attempted_cur)
+            self.history_sent.append(self.sent_cur)
+            self.attempted_cur = 0
+            self.sent_cur = 0
+            self.last_tick = now
+
+
+def _load_arial_font(size=14):
+    if not PIL_AVAILABLE:
+        return None
+    candidates = [
+        "/Library/Fonts/Arial.ttf",                # macOS
+        "/System/Library/Fonts/Supplemental/Arial.ttf",  # macOS newer
+        "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf",  # Linux
+        "/usr/share/fonts/truetype/msttcorefonts/arial.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",   # fallback
+    ]
+    for p in candidates:
+        try:
+            return ImageFont.truetype(p, size)
+        except Exception:
+            continue
+    try:
+        return ImageFont.load_default()
+    except Exception:
+        return None
+
+
+def draw_midi_rate_graph(frame, stats: MidiStats, limiting_enabled: bool, max_rate: int):
+    try:
+        hist_attempt = list(stats.history_attempted)
+        hist_sent = list(stats.history_sent)
+        if not hist_attempt and not hist_sent:
+            return frame
+
+        # Graph area
+        h, w = frame.shape[:2]
+        graph_w = 260
+        graph_h = 120
+        margin = 12
+        x0 = w - graph_w - margin
+        y0 = h - graph_h - margin
+        x1 = w - margin
+        y1 = h - margin
+
+        # Prepare background box
+        cv2.rectangle(frame, (x0, y0), (x1, y1), (20, 20, 20), thickness=-1)
+        cv2.rectangle(frame, (x0, y0), (x1, y1), (80, 80, 80), thickness=1)
+
+        # Determine scaling (use max of observed and limit)
+        max_observed = max(hist_attempt + hist_sent) if (hist_attempt or hist_sent) else 1
+        max_val = max([1, max_observed] + ([max_rate] if limiting_enabled and max_rate > 0 else []))
+
+        # Reserve space at top for legend/title so lines/labels never cross it
+        legend_reserved_px = 48  # keep lines and y-ticks below this
+        top_plot_y = y0 + legend_reserved_px
+        bottom_plot_y = y1 - 10
+        usable_h = max(1, bottom_plot_y - top_plot_y)
+        scale_y = usable_h / float(max_val)
+
+        # Helper to plot series
+        def plot_series(values, color, mode='line', thickness=2):
+            if len(values) < 1:
+                return
+            step_x = max(1, int((graph_w - 20) / max(1, len(values) - 1)))
+            pts = []
+            for i, v in enumerate(values[-int((graph_w - 20)/step_x) - 1:]):
+                x = x0 + 10 + i * step_x
+                y = bottom_plot_y - int(v * scale_y)
+                pts.append((x, y))
+            if mode == 'line' and len(pts) >= 2:
+                cv2.polylines(frame, [np.array(pts, dtype=np.int32)], False, color, thickness, cv2.LINE_AA)
+            elif mode == 'markers':
+                for p in pts:
+                    cv2.circle(frame, p, max(1, thickness // 2), color, -1, lineType=cv2.LINE_AA)
+
+        # Draw sent (green line, thicker) and attempts (yellow markers) for clarity
+        plot_series(hist_sent, (0, 200, 0), mode='line', thickness=3)
+        plot_series(hist_attempt, (0, 255, 255), mode='markers', thickness=2)
+
+        # Draw rate limit line if enabled (keep well below legend area)
+        if limiting_enabled and max_rate > 0:
+            y_lim = bottom_plot_y - int(max_rate * scale_y)
+            cv2.line(frame, (x0 + 10, y_lim), (x1 - 10, y_lim), (0, 0, 255), 1, cv2.LINE_AA)
+
+        # Labels using PIL for Arial if available
+        attempted_last = hist_attempt[-1] if hist_attempt else 0
+        sent_last = hist_sent[-1] if hist_sent else 0
+        title = f"MIDI messages per second  (attempt {attempted_last}  sent {sent_last})"
+        legend1 = "attempt"
+        legend2 = "sent"
+
+        if PIL_AVAILABLE:
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img = Image.fromarray(rgb)
+            draw = ImageDraw.Draw(img)
+            font = _load_arial_font(14)
+            draw.text((x0 + 10, y0 + 6), title, fill=(220, 220, 220), font=font)
+            draw.rectangle([x0 + 10, y0 + 28, x0 + 30, y0 + 33], fill=(255, 255, 0))
+            draw.text((x0 + 34, y0 + 24), legend1, fill=(230, 230, 230), font=font)
+            draw.rectangle([x0 + 100, y0 + 28, x0 + 120, y0 + 33], fill=(0, 220, 0))
+            draw.text((x0 + 124, y0 + 24), legend2, fill=(230, 230, 230), font=font)
+            # Y-axis ticks and labels (0, limit if enabled, max observed)
+            ticks = [(0, "0")]
+            if limiting_enabled and max_rate > 0:
+                ticks.append((max_rate, f"{max_rate}"))
+            ticks.append((max_observed, f"{max_observed}"))
+            for val, lbl in ticks:
+                y_tick = bottom_plot_y - int(val * scale_y)
+                draw.line([(x0 + 8, y_tick), (x0 + 10, y_tick)], fill=(200, 200, 200), width=1)
+                draw.text((x0 + 2, y_tick - 8), lbl, fill=(200, 200, 200), font=font)
+            frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+        else:
+            cv2.putText(frame, title, (x0 + 10, y0 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220, 220, 220), 1, cv2.LINE_AA)
+            cv2.rectangle(frame, (x0 + 10, y0 + 28), (x0 + 30, y0 + 33), (0, 255, 255), thickness=-1)
+            cv2.putText(frame, legend1, (x0 + 34, y0 + 33), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (230, 230, 230), 1, cv2.LINE_AA)
+            cv2.rectangle(frame, (x0 + 100, y0 + 28), (x0 + 120, y0 + 33), (0, 200, 0), thickness=-1)
+            cv2.putText(frame, legend2, (x0 + 124, y0 + 33), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (230, 230, 230), 1, cv2.LINE_AA)
+            # OpenCV-only y-axis rough ticks
+            cv2.putText(frame, "0", (x0 + 2, bottom_plot_y - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1, cv2.LINE_AA)
+            if limiting_enabled and max_rate > 0:
+                y_tick = bottom_plot_y - int(max_rate * scale_y)
+                cv2.line(frame, (x0 + 8, y_tick), (x0 + 10, y_tick), (200, 200, 200), 1, cv2.LINE_AA)
+                cv2.putText(frame, f"{max_rate}", (x0 + 2, y_tick - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1, cv2.LINE_AA)
+            cv2.putText(frame, f"{max_observed}", (x0 + 2, top_plot_y + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1, cv2.LINE_AA)
+
+        # X-axis (time) at bottom of graph
+        cv2.line(frame, (x0 + 10, bottom_plot_y), (x1 - 10, bottom_plot_y), (120, 120, 120), 1, cv2.LINE_AA)
+
+        # X-axis labels: left shows "-Ns", right shows "now"
+        n_seconds = max(len(hist_attempt), len(hist_sent))
+        if n_seconds > 0:
+            cv2.putText(frame, "now", (x1 - 45, bottom_plot_y - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
+            cv2.putText(frame, f"-{n_seconds}s", (x0 + 10, bottom_plot_y - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
+    except Exception:
+        # Fail-safe: never crash visualization
+        pass
+    return frame
 def send_stop_message(midi_out):
     """Send note-off to all MIDI channels."""
     if midi_out:
@@ -822,6 +1045,8 @@ def main(
     midi_out = None
     midi_mapping = None
     channels = None
+    midi_stats = None
+    midi_limiter = None
 
     if enable_midi:
         midi_out = init_midi_output(midi_device_index)
@@ -835,10 +1060,21 @@ def main(
             if enable_midi:
                 return
 
+        # Create limiter and stats
+        midi_stats = MidiStats(history_seconds=MIDI_GRAPH_HISTORY_SECONDS)
+        midi_limiter = MidiLimiter(
+            enabled=MIDI_LIMITING_ENABLED,
+            global_rate=MIDI_GLOBAL_MAX_RATE,
+            per_chan_interval=MIDI_PER_CHANNEL_MIN_INTERVAL_S,
+        )
+
         # Create channels from configuration
         channels = []
         for name, color_ch, cc_num, midi_ch, min_val, max_val in CHANNEL_CONFIGS:
-            channel = ColorChannel(name, color_ch, cc_num, midi_ch, min_val, max_val, midi_out)
+            channel = ColorChannel(
+                name, color_ch, cc_num, midi_ch, min_val, max_val, midi_out,
+                limiter=midi_limiter, stats=midi_stats, quantize_step=MIDI_QUANTIZE_STEP
+            )
             channels.append(channel)
 
         print("MIDI channels initialized")
@@ -1067,6 +1303,15 @@ def main(
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2, cv2.LINE_AA
                         )
 
+                    # Draw MIDI throughput graph
+                    if midi_stats is not None:
+                        vis_frame = draw_midi_rate_graph(
+                            vis_frame,
+                            midi_stats,
+                            limiting_enabled=MIDI_LIMITING_ENABLED,
+                            max_rate=int(MIDI_GLOBAL_MAX_RATE),
+                        )
+
                     cv2.imshow("MIDI Control", vis_frame)
 
                 if timing_diagnostics:
@@ -1115,6 +1360,10 @@ def main(
                 if elapsed < frame_interval:
                     time.sleep(frame_interval - elapsed)
                 last_frame_time = time.time()
+
+                # Stats tick
+                if midi_stats is not None:
+                    midi_stats.tick_second()
             else:
                 # If only HackTV is enabled, just wait
                 time.sleep(0.1)
@@ -1202,11 +1451,53 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable timing diagnostics (reports every 100 frames)"
     )
+    parser.add_argument(
+        "--limit-midi",
+        action="store_true",
+        default=True,
+        help="Enable MIDI rate limiting (default: enabled)"
+    )
+    parser.add_argument(
+        "--no-limit-midi",
+        action="store_true",
+        help="Disable MIDI rate limiting"
+    )
+    parser.add_argument(
+        "--midi-max-rate",
+        type=int,
+        default=MIDI_GLOBAL_MAX_RATE,
+        help="Global max MIDI CC messages per second"
+    )
+    parser.add_argument(
+        "--midi-per-chan-interval-ms",
+        type=int,
+        default=int(MIDI_PER_CHANNEL_MIN_INTERVAL_S * 1000),
+        help="Minimum interval between CCs per (channel,cc) in milliseconds"
+    )
+    parser.add_argument(
+        "--midi-quantize-step",
+        type=int,
+        default=MIDI_QUANTIZE_STEP,
+        help="Quantization step for CC values (1 disables quantization)"
+    )
+    parser.add_argument(
+        "--graph-history-seconds",
+        type=int,
+        default=MIDI_GRAPH_HISTORY_SECONDS,
+        help="Seconds of throughput history to show in the overlay"
+    )
 
     args = parser.parse_args()
 
     enable_midi = args.midi and not args.no_midi
     enable_hacktv = args.hacktv
+
+    # Apply MIDI limiting configuration
+    MIDI_LIMITING_ENABLED = bool(args.limit_midi and not args.no_limit_midi)
+    MIDI_GLOBAL_MAX_RATE = max(1, int(args.midi_max_rate))
+    MIDI_PER_CHANNEL_MIN_INTERVAL_S = max(0.0, float(args.midi_per_chan_interval_ms) / 1000.0)
+    MIDI_QUANTIZE_STEP = max(1, int(args.midi_quantize_step))
+    MIDI_GRAPH_HISTORY_SECONDS = max(1, int(args.graph_history_seconds))
 
     if not enable_midi and not enable_hacktv:
         print("Error: At least one of --midi or --hacktv must be enabled")
@@ -1220,6 +1511,8 @@ if __name__ == "__main__":
     print(f"  webcam: {args.webcam if args.webcam else 'auto-detect'}")
     print(f"  midi-device: {args.midi_device if args.midi_device is not None else 'auto (first device)'}")
     print(f"  timing: {args.timing}")
+    print(f"  midi limiting: {MIDI_LIMITING_ENABLED} | max_rate={MIDI_GLOBAL_MAX_RATE} | per_chan_interval_ms={int(MIDI_PER_CHANNEL_MIN_INTERVAL_S*1000)} | quant_step={MIDI_QUANTIZE_STEP}")
+    print(f"  graph history: {MIDI_GRAPH_HISTORY_SECONDS}s")
 
     main(
         args.midi_mapping,
