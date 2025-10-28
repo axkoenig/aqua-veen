@@ -8,6 +8,7 @@ Combined script: Generate MIDI from webcam AND stream to HackTV
 """
 
 import argparse
+import platform
 import signal
 import time
 import subprocess
@@ -257,80 +258,121 @@ def start_osc_server():
 
 def find_webcam():
     """Auto-detect and validate webcam device"""
-    try:
-        result = subprocess.run(
-            ["v4l2-ctl", "--list-devices"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-
-        print("Available video devices:")
-        print(result.stdout)
-
-        devices = []
-        for line in result.stdout.split('\n'):
-            if '/dev/video' in line:
-                device = line.strip()
-                if device.endswith(('0', '2', '4', '6', '8')):
-                    devices.append(device)
-
-        for device in devices:
-            print(f"\nTesting {device}...", end=" ")
-            try:
-                cap_result = subprocess.run(
-                    ["v4l2-ctl", "-d", device, "--all"],
-                    capture_output=True,
-                    text=True,
-                    timeout=2
-                )
-
-                if "Video Capture" in cap_result.stdout:
-                    print(f"✓ Valid capture device")
-                    response = input(f"Use {device}? (y/n/skip): ").lower()
+    system = platform.system()
+    
+    # macOS/Darwin detection
+    if system == "Darwin":
+        print("Detected macOS - testing webcam with OpenCV...")
+        
+        # Try common indices (0 is usually built-in camera)
+        for index in range(5):
+            print(f"\nTesting webcam index {index}...", end=" ")
+            cap = cv2.VideoCapture(index)
+            
+            if cap.isOpened():
+                # Try to read a frame to verify it works
+                ret, frame = cap.read()
+                cap.release()
+                
+                if ret:
+                    print(f"✓ Working camera found")
+                    response = input(f"Use webcam index {index}? (y/n): ").lower()
                     if response == 'y':
-                        return device
-                    elif response == 's' or response == 'skip':
-                        continue
+                        return index
                 else:
-                    print("✗ Not a capture device")
+                    print("✗ Could not read frame")
+            else:
+                print("✗ Not available")
+        
+        # Manual input
+        manual_index = input("\nEnter webcam index manually (usually 0): ").strip()
+        if manual_index.isdigit():
+            return int(manual_index)
+        
+        return None
+    
+    # Linux detection
+    elif system == "Linux":
+        try:
+            result = subprocess.run(
+                ["v4l2-ctl", "--list-devices"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
 
-            except subprocess.TimeoutExpired:
-                print("✗ Timeout")
-            except Exception as e:
-                print(f"✗ Error: {e}")
+            print("Available video devices:")
+            print(result.stdout)
 
-        device = input("\nEnter video device manually (e.g., /dev/video0): ").strip()
-        if device:
-            return device
+            devices = []
+            for line in result.stdout.split('\n'):
+                if '/dev/video' in line:
+                    device = line.strip()
+                    if device.endswith(('0', '2', '4', '6', '8')):
+                        devices.append(device)
 
-    except subprocess.CalledProcessError:
-        print("Could not list devices with v4l2-ctl")
-    except FileNotFoundError:
-        print("v4l2-ctl not found. Please install v4l-utils")
+            for device in devices:
+                print(f"\nTesting {device}...", end=" ")
+                try:
+                    cap_result = subprocess.run(
+                        ["v4l2-ctl", "-d", device, "--all"],
+                        capture_output=True,
+                        text=True,
+                        timeout=2
+                    )
 
-    print("\nTrying common video devices...")
-    for device in ["/dev/video0", "/dev/video2", "/dev/video4"]:
-        if Path(device).exists():
-            print(f"Found {device}")
-            response = input(f"Use {device}? (y/n): ").lower()
-            if response == 'y':
+                    if "Video Capture" in cap_result.stdout:
+                        print(f"✓ Valid capture device")
+                        response = input(f"Use {device}? (y/n/skip): ").lower()
+                        if response == 'y':
+                            return device
+                        elif response == 's' or response == 'skip':
+                            continue
+                    else:
+                        print("✗ Not a capture device")
+
+                except subprocess.TimeoutExpired:
+                    print("✗ Timeout")
+                except Exception as e:
+                    print(f"✗ Error: {e}")
+
+            device = input("\nEnter video device manually (e.g., /dev/video0): ").strip()
+            if device:
                 return device
 
-    return None
+        except subprocess.CalledProcessError:
+            print("Could not list devices with v4l2-ctl")
+        except FileNotFoundError:
+            print("v4l2-ctl not found. Please install v4l-utils")
+
+        print("\nTrying common video devices...")
+        for device in ["/dev/video0", "/dev/video2", "/dev/video4"]:
+            if Path(device).exists():
+                print(f"Found {device}")
+                response = input(f"Use {device}? (y/n): ").lower()
+                if response == 'y':
+                    return device
+
+        return None
+    
+    else:
+        print(f"Unsupported platform: {system}")
+        print("Trying default webcam index 0...")
+        return 0
 
 
 def build_ffmpeg_command(webcam_device, use_stdin=False, frame_width=640, frame_height=480):
     """Build FFmpeg command with current mix value
 
     Args:
-        webcam_device: Path to webcam device (only used if use_stdin=False)
-        use_stdin: If True, accept rawvideo from stdin instead of v4l2
+        webcam_device: Path to webcam device or index (only used if use_stdin=False)
+        use_stdin: If True, accept rawvideo from stdin instead of v4l2/avfoundation
         frame_width: Width of input frames (when use_stdin=True)
         frame_height: Height of input frames (when use_stdin=True)
     """
     mix = mixer_state.get_mix()
     width, height = VIDEO_RESOLUTION.split('x')
+    system = platform.system()
 
     if use_stdin:
         # Accept BGR24 rawvideo from stdin (OpenCV format)
@@ -360,8 +402,35 @@ def build_ffmpeg_command(webcam_device, use_stdin=False, frame_width=640, frame_
             "-f", "mpegts",
             "-"
         ]
+    elif system == "Darwin":
+        # macOS: Use AVFoundation
+        cmd = [
+            "ffmpeg",
+            "-loglevel", "info",
+            "-f", "avfoundation",
+            "-framerate", "25",
+            "-video_size", "640x480",
+            "-i", str(webcam_device),
+            "-stream_loop", "-1",
+            "-i", VIDEO_LOOP_FILE,
+            "-filter_complex",
+            f"[0:v]scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1[webcam];"
+            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1[loop];"
+            f"[webcam][loop]blend=all_expr='A*(1-{mix})+B*{mix}':shortest=1[out]",
+            "-map", "[out]",
+            "-map", "1:a",
+            "-c:v", "mpeg2video",
+            "-r", str(VIDEO_FRAMERATE),
+            "-b:v", "4M",
+            "-maxrate", "4M",
+            "-bufsize", "8M",
+            "-c:a", "mp2",
+            "-b:a", "192k",
+            "-f", "mpegts",
+            "-"
+        ]
     else:
-        # Original v4l2 capture mode
+        # Linux: Use v4l2 capture mode
         cmd = [
             "ffmpeg",
             "-loglevel", "info",
@@ -396,6 +465,7 @@ def build_ffmpeg_command(webcam_device, use_stdin=False, frame_width=640, frame_
         print(f"Webcam source: OpenCV frames via stdin")
         print(f"Frame size: {frame_width}x{frame_height}")
     else:
+        print(f"Platform: {system}")
         print(f"Webcam device: {webcam_device}")
     print(f"Video loop file: {VIDEO_LOOP_FILE}")
     print(f"Mix value: {mix:.2f} (0=all webcam, 1=all loop)")
