@@ -42,9 +42,9 @@ DEBUG = False
 
 # MIDI limiting and visualization defaults
 MIDI_LIMITING_ENABLED = True
-MIDI_GLOBAL_MAX_RATE = 50            # messages per second (token bucket fill rate)
-MIDI_PER_CHANNEL_MIN_INTERVAL_S = 0.02  # 20 ms between sends per (channel,cc)
-MIDI_QUANTIZE_STEP = 4                # send only on >= step change in CC value
+MIDI_GLOBAL_MAX_RATE = 200            # messages per second (token bucket fill rate)
+MIDI_PER_CHANNEL_MIN_INTERVAL_S = 0.01  # 10 ms between sends per (channel,cc)
+MIDI_QUANTIZE_STEP = 2                # send only on >= step change in CC value
 MIDI_GRAPH_HISTORY_SECONDS = 20       # seconds of history for overlay graph
 
 
@@ -53,9 +53,9 @@ MIDI_GRAPH_HISTORY_SECONDS = 20       # seconds of history for overlay graph
 # color_channel: 'red', 'green', 'blue', or 'gray' for total brightness
 CHANNEL_CONFIGS = [
     ("Red→T1 Feedback", "red", 19, 0, 0, 127),      # Track 1 SYN 1 Feedback
-    ("Green→T4 LFO Speed", "green", 28, 3, 0, 127),  # Track 4 LFO Speed
+    ("Green→T4 LFO Speed", "green", 23, 3, 0, 127),  # Track 4 Filter Frequency 
     ("Blue→T2 Filter", "blue", 23, 1, 50, 100),      # Track 2 Filter Frequency
-    ("Total→T3 SYN1 Mix", "gray", 21, 2, 0, 127),    # Track 3 SYN 1 Mix
+    ("Total→T3 SYN1 Mix", "gray", 23, 2, 0, 127),    # Track 3 Filter Frequency
 ]
 
 # HackTV settings
