@@ -47,9 +47,9 @@ except Exception:
 CURRENT_FOUR_PROFILE: List[Tuple[int, int]] = [
     # (cc, midi_channel)
     (19, 0),  # Track 1 Feedback
-    (28, 3),  # Track 4 LFO Speed
+    (28, 3),  # Track 4 LFO Speed (works with 23)
     (23, 1),  # Track 2 Filter
-    (21, 2),  # Track 3 SYN1 Mix
+    (21, 2),  # Track 3 SYN1 Mix (works with 23)
 ]
 
 
