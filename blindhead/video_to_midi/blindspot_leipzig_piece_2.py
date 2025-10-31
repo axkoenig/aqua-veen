@@ -2077,8 +2077,9 @@ def main(
         last_paused_state = False  # Track pause state changes
         last_video_timestamp = 0  # Track previous timestamp to detect seeks
         hd_video_started = (sync_offset == 0)  # Track if HD video has started playing
-        # MIDI reconnect timer
-        last_midi_check_time = time.time()
+        # MIDI reconnect timer (5 Hz)
+        midi_poll_interval = 0.2
+        last_midi_check_time = 0
 
         while True:
             frame_count += 1
@@ -2086,7 +2087,7 @@ def main(
             # Periodically check for MIDI device if not connected (works even when paused)
             if midi_out is None:
                 now = time.time()
-                if now - last_midi_check_time >= 1.0:
+                if now - last_midi_check_time >= midi_poll_interval:
                     last_midi_check_time = now
                     try:
                         output_names = mido.get_output_names()
@@ -2234,14 +2235,15 @@ def main(
                 }
                 shapes_info.append(shape_data)
 
-            # Send the frame and shape info to the visualization process
+            # Send the frame, shape info, and MIDI status to the visualization process
             try:
                 if viz_queue.full():
                     try:
                         viz_queue.get_nowait()
                     except Exception:
                         pass
-                viz_queue.put_nowait((frame, shapes_info))
+                midi_status = {"connected": midi_out is not None}
+                viz_queue.put_nowait((frame, shapes_info, midi_status))
             except Exception as e:
                 print(f"Visualization queue put error: {e}")
 
@@ -2308,7 +2310,12 @@ def visualization_worker(frame_queue):
                 if data is None:
                     break
 
-                frame, shapes_info = data
+                # Unpack possible payloads: (frame, shapes) or (frame, shapes, status)
+                if isinstance(data, tuple) and len(data) == 3:
+                    frame, shapes_info, midi_status = data
+                else:
+                    frame, shapes_info = data
+                    midi_status = {"connected": False}
 
                 # Draw shapes on the frame with improved visualization
                 for shape_data in shapes_info:
@@ -2397,6 +2404,35 @@ def visualization_worker(frame_queue):
                             1,
                             cv2.LINE_AA,
                         )
+
+                # Draw MIDI connection status (top-left)
+                try:
+                    status_connected = bool(midi_status.get("connected", False))
+                except Exception:
+                    status_connected = False
+                status_text = "MIDI: Connected" if status_connected else "MIDI: Not connected"
+                status_color = (0, 255, 0) if status_connected else (0, 0, 255)
+                base_x, base_y = 10, 30
+                (text_w, text_h), _ = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+                padding = 6
+                # Background rectangle for readability
+                cv2.rectangle(
+                    frame,
+                    (base_x - padding, base_y - text_h - padding),
+                    (base_x + text_w + padding, base_y + padding // 2),
+                    (0, 0, 0),
+                    -1,
+                )
+                cv2.putText(
+                    frame,
+                    status_text,
+                    (base_x, base_y),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    status_color,
+                    2,
+                    cv2.LINE_AA,
+                )
 
                 cv2.imshow("Shapes Detection", frame)
                 if cv2.waitKey(1) & 0xFF == 27:  # ESC key
