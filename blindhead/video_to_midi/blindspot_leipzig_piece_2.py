@@ -1944,6 +1944,8 @@ def main(
 
     try:
         midi_out = init_midi_output()
+        if midi_out is None:
+            print("No MIDI output available; will retry every 1s until connected.")
 
         # Load MIDI mapping
         try:
@@ -2075,9 +2077,29 @@ def main(
         last_paused_state = False  # Track pause state changes
         last_video_timestamp = 0  # Track previous timestamp to detect seeks
         hd_video_started = (sync_offset == 0)  # Track if HD video has started playing
+        # MIDI reconnect timer
+        last_midi_check_time = time.time()
 
         while True:
             frame_count += 1
+
+            # Periodically check for MIDI device if not connected (works even when paused)
+            if midi_out is None:
+                now = time.time()
+                if now - last_midi_check_time >= 1.0:
+                    last_midi_check_time = now
+                    try:
+                        output_names = mido.get_output_names()
+                        if output_names:
+                            print(f"MIDI device connected: {output_names[0]} (opening)")
+                            midi_out = mido.open_output(output_names[0])
+                            # Attach new MIDI output to any existing shapes and start their notes
+                            for shape in active_shapes:
+                                shape.midi_out = midi_out
+                                if shape.is_active:
+                                    shape._send_note_on()
+                    except Exception as e:
+                        debug_print(f"MIDI reconnect attempt failed: {e}")
 
             # Get current frame from video
             ret, frame, metadata = video_stream.read()
